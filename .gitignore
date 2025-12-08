@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Build files
+build/
+dist/
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Personal files (이미지 파일들)
+model/
+clothes/
+images/
+*.png
+*.jpg
+*.jpeg
+다운로드 (1).jpg
+
+# Personal batch files
+크롬_디버깅모드_실행.bat
+
+# Logs
+*.log
+

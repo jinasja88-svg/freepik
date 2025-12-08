@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Freepik Auto</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 260px;
+        box-sizing: border-box;
+      }
+
+      h1 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 80px;
+        resize: vertical;
+        font-size: 12px;
+      }
+
+      button {
+        margin-top: 8px;
+        width: 100%;
+        padding: 6px 0;
+        border-radius: 4px;
+        border: none;
+        background: #1a73e8;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      .status {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Freepik Auto</h1>
+    <label for="promptInput" style="font-size: 12px;">
+      Freepik에 보낼 프롬프트
+    </label>
+    <textarea
+      id="promptInput"
+      placeholder="예) 이 의상을 입은 전체 전신 모델 사진을 자연스럽게 합성해줘..."
+    ></textarea>
+    <button id="uploadBtn" style="margin-top: 4px; background: #34a853;">파일 업로드 버튼 클릭</button>
+    <button id="runBtn">Freepik에서 실행</button>
+    <hr style="margin: 12px 0; border: none; border-top: 1px solid #ddd;">
+    <div style="font-size: 11px; margin-bottom: 6px;">자동 반복 실행:</div>
+    <label style="font-size: 11px; display: block; margin-bottom: 4px;">
+      <input type="checkbox" id="autoRepeat" style="margin-right: 4px;">
+      반복 실행 활성화
+    </label>
+    <label style="font-size: 11px; display: block; margin-bottom: 6px;">
+      대기 시간 (초): 
+      <input type="number" id="waitTime" value="20" min="10" max="60" style="width: 50px; margin-left: 4px;">
+    </label>
+    <button id="stopBtn" style="background: #ea4335; display: none;">중지</button>
+    <div class="status" id="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
+
+
+
+

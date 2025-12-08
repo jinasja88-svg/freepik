@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Freepik Auto Composer",
+  "version": "0.1.0",
+  "description": "Freepik 이미지 생성 페이지에서 반복 작업을 도와주는 실험용 자동화 확장 프로그램입니다.",
+  "permissions": [
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://www.freepik.com/*",
+    "*://freepik.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Freepik Auto"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
+
+
+
+
+
+
