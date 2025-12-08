@@ -1,10 +1,18 @@
 """
 Freepik 다운로드 기능 - ver1.1
 체크박스 클릭 및 다운로드 버튼 클릭 기능
+다운로드 파일을 지정 폴더에 저장
 """
 import asyncio
+import shutil
+import tempfile
 from pathlib import Path
+from datetime import datetime, timedelta
 from playwright.async_api import async_playwright
+
+# 다운로드 폴더 설정
+DOWNLOAD_DIR = Path(r"D:\private\코딩\커서\new\download")
+DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def test_checkbox():
@@ -59,6 +67,75 @@ async def test_checkbox():
             
             if not page:
                 page = await context.new_page()
+            
+            # 다운로드 이벤트 핸들러 설정 (여러 방법 시도)
+            download_paths = []
+            download_event_received = asyncio.Event()
+            latest_download = None
+            
+            async def handle_download(download):
+                """다운로드 파일을 지정 폴더로 저장"""
+                nonlocal latest_download
+                try:
+                    latest_download = download
+                    download_event_received.set()
+                    
+                    # 다운로드 파일명 가져오기
+                    suggested_filename = download.suggested_filename
+                    if not suggested_filename:
+                        suggested_filename = f"download_{len(download_paths) + 1}.png"
+                    
+                    # 저장 경로 설정
+                    save_path = DOWNLOAD_DIR / suggested_filename
+                    
+                    # 파일명 중복 방지
+                    counter = 1
+                    original_path = save_path
+                    while save_path.exists():
+                        stem = original_path.stem
+                        suffix = original_path.suffix
+                        save_path = DOWNLOAD_DIR / f"{stem}_{counter}{suffix}"
+                        counter += 1
+                    
+                    print(f"\n[다운로드] 파일 저장 중: {save_path.name}")
+                    # download.saveAs()로 지정 폴더에 저장
+                    await download.save_as(save_path)
+                    download_paths.append(save_path)
+                    print(f"✓ 다운로드 완료: {save_path}")
+                except Exception as e:
+                    print(f"⚠ 다운로드 이벤트 처리 중 오류: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # 다운로드 이벤트 리스너 등록 (여러 방법 시도)
+            print(f"다운로드 폴더: {DOWNLOAD_DIR}")
+            
+            # 방법 1: page.on("download") 사용
+            try:
+                page.on("download", handle_download)
+                print("✓ 다운로드 이벤트 리스너 등록됨 (page.on)")
+            except Exception as e:
+                print(f"⚠ page.on 등록 실패: {e}")
+            
+            # 방법 2: context.on("page")로도 시도
+            try:
+                async def context_page_handler(new_page):
+                    new_page.on("download", handle_download)
+                context.on("page", context_page_handler)
+                print("✓ 컨텍스트 페이지 핸들러 등록됨")
+            except Exception as e:
+                print(f"⚠ 컨텍스트 핸들러 등록 실패: {e}")
+            
+            # 방법 3: 모든 페이지에 핸들러 등록
+            try:
+                for p in pages:
+                    try:
+                        p.on("download", handle_download)
+                        print(f"✓ 페이지 핸들러 등록됨: {p.url[:50]}")
+                    except:
+                        pass
+            except Exception as e:
+                print(f"⚠ 페이지 핸들러 등록 실패: {e}")
             
             print(f"현재 페이지: {page.url}")
             
@@ -416,11 +493,151 @@ async def test_checkbox():
                         if button_info.get('disabled'):
                             print("⚠ 버튼이 비활성화되어 있습니다.")
                         else:
+                            # 방법 3: CDP를 통한 다운로드 리스트 확인
+                            print("\n[방법 3] CDP를 통한 다운로드 리스트 확인")
+                            
+                            # CDP 세션 가져오기
+                            cdp_session = await context.new_cdp_session(page)
+                            
+                            # 다운로드 시작 전 다운로드 리스트 확인
+                            print("다운로드 시작 전 상태 확인 중...")
+                            initial_downloads = []
+                            try:
+                                # Browser.getDownloadPath 또는 다운로드 리스트 가져오기
+                                # CDP를 통해 다운로드 이벤트 리스너 등록
+                                await cdp_session.send("Browser.setDownloadBehavior", {
+                                    "behavior": "allow",
+                                    "downloadPath": str(DOWNLOAD_DIR)
+                                })
+                                print(f"✓ 다운로드 경로 설정: {DOWNLOAD_DIR}")
+                            except Exception as e:
+                                print(f"⚠ 다운로드 경로 설정 실패: {e}")
+                            
+                            # 다운로드 이벤트 리스너 설정
+                            download_info = {}
+                            
+                            async def handle_cdp_download(event):
+                                """CDP 다운로드 이벤트 처리"""
+                                try:
+                                    if event.get('method') == 'Browser.downloadProgress':
+                                        params = event.get('params', {})
+                                        guid = params.get('guid')
+                                        state = params.get('state')
+                                        
+                                        if guid:
+                                            if guid not in download_info:
+                                                download_info[guid] = {}
+                                            
+                                            download_info[guid]['state'] = state
+                                            
+                                            if 'receivedBytes' in params:
+                                                download_info[guid]['receivedBytes'] = params['receivedBytes']
+                                            if 'totalBytes' in params:
+                                                download_info[guid]['totalBytes'] = params['totalBytes']
+                                            
+                                            if state == 'completed':
+                                                # 다운로드 완료
+                                                if 'url' in params:
+                                                    download_info[guid]['url'] = params['url']
+                                                if 'suggestedFilename' in params:
+                                                    download_info[guid]['filename'] = params['suggestedFilename']
+                                                
+                                                print(f"✓ 다운로드 완료 감지: {download_info[guid].get('filename', 'unknown')}")
+                                
+                                except Exception as e:
+                                    print(f"CDP 이벤트 처리 오류: {e}")
+                            
+                            # CDP 이벤트 리스너 등록
+                            cdp_session.on("Browser.downloadProgress", handle_cdp_download)
+                            
+                            # 버튼 클릭
                             await download_button.click()
-                            await asyncio.sleep(1.0)
+                            await asyncio.sleep(0.5)
                             print("✓✓✓ 다운로드 버튼 클릭 성공! ✓✓✓")
-                            print("\n다운로드가 시작되었습니다...")
-                            await asyncio.sleep(2.0)
+                            print("\n다운로드 진행 상황을 모니터링 중...")
+                            
+                            # 다운로드 완료 대기
+                            downloaded_file = None
+                            for i in range(60):  # 최대 30초 대기
+                                await asyncio.sleep(0.5)
+                                
+                                # 완료된 다운로드 확인
+                                for guid, info in download_info.items():
+                                    if info.get('state') == 'completed':
+                                        downloaded_file = info
+                                        break
+                                
+                                if downloaded_file:
+                                    break
+                                
+                                # 진행 상황 출력
+                                if i % 10 == 0 and download_info:
+                                    for guid, info in download_info.items():
+                                        state = info.get('state', 'unknown')
+                                        received = info.get('receivedBytes', 0)
+                                        total = info.get('totalBytes', 0)
+                                        if total > 0:
+                                            percent = (received / total) * 100
+                                            print(f"  다운로드 진행: {percent:.1f}% ({received}/{total} bytes)")
+                            
+                            # 다운로드된 파일 처리
+                            if downloaded_file:
+                                filename = downloaded_file.get('filename', f"download_{len(download_paths) + 1}.png")
+                                print(f"\n✓ 다운로드 완료: {filename}")
+                                
+                                # 파일 경로 찾기
+                                # CDP를 통해 실제 파일 경로 가져오기 시도
+                                try:
+                                    # 다운로드 폴더에서 파일 찾기
+                                    download_path = DOWNLOAD_DIR / filename
+                                    
+                                    # 파일이 없으면 Temp 폴더에서 찾기
+                                    if not download_path.exists():
+                                        temp_base = Path(tempfile.gettempdir())
+                                        for item in temp_base.iterdir():
+                                            if item.is_dir() and item.name.startswith("playwright-artifacts-"):
+                                                for file_path in item.rglob(filename):
+                                                    if file_path.is_file():
+                                                        download_path = file_path
+                                                        print(f"✓ 파일 발견: {download_path}")
+                                                        break
+                                                if download_path.exists():
+                                                    break
+                                    
+                                    if download_path.exists():
+                                        # 파일명 중복 방지
+                                        save_path = DOWNLOAD_DIR / filename
+                                        counter = 1
+                                        original_path = save_path
+                                        while save_path.exists() and save_path != download_path:
+                                            stem = original_path.stem
+                                            suffix = original_path.suffix
+                                            save_path = DOWNLOAD_DIR / f"{stem}_{counter}{suffix}"
+                                            counter += 1
+                                        
+                                        # 파일 복사 또는 이동
+                                        if download_path != save_path:
+                                            shutil.copy2(str(download_path), str(save_path))
+                                            print(f"✓ 파일 복사 완료: {save_path.name}")
+                                        else:
+                                            print(f"✓ 파일이 이미 올바른 위치에 있습니다: {save_path}")
+                                        
+                                        print(f"\n✓✓✓ 다운로드 완료! ✓✓✓")
+                                        print(f"저장 위치: {save_path}")
+                                    else:
+                                        print(f"\n⚠ 파일을 찾을 수 없습니다: {filename}")
+                                        print(f"다운로드 폴더: {DOWNLOAD_DIR}")
+                                
+                                except Exception as e:
+                                    print(f"\n✗ 파일 처리 중 오류: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                            else:
+                                print("\n⚠ 다운로드 완료를 감지하지 못했습니다.")
+                                print(f"다운로드 폴더: {DOWNLOAD_DIR}")
+                                print("브라우저의 다운로드 폴더를 확인해주세요.")
+                            
+                            await asyncio.sleep(1.0)
                     except Exception as e:
                         print(f"✗ 다운로드 버튼 클릭 실패: {e}")
                 else:
