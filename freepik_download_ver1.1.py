@@ -596,7 +596,7 @@ async def test_checkbox():
                                 
                                 # 파일이 완전히 디스크에 쓰여질 때까지 대기
                                 print("파일이 완전히 저장될 때까지 대기 중...")
-                                await asyncio.sleep(2.0)  # 최소 2초 대기
+                                await asyncio.sleep(3.0)  # 3초 대기
                                 
                                 # 파일 경로 찾기
                                 # CDP를 통해 실제 파일 경로 가져오기 시도
@@ -607,42 +607,115 @@ async def test_checkbox():
                                     download_path = DOWNLOAD_DIR / filename
                                     
                                     # 2. 파일이 없으면 Temp 폴더에서 찾기
-                                    if not download_path.exists() or download_path.stat().st_size == 0:
+                                    if not download_path.exists() or (download_path.exists() and download_path.stat().st_size == 0):
                                         print("다운로드 폴더에서 파일을 찾지 못했습니다. Temp 폴더 검색 중...")
                                         temp_base = Path(tempfile.gettempdir())
-                                        for item in temp_base.iterdir():
-                                            if item.is_dir() and item.name.startswith("playwright-artifacts-"):
-                                                for file_path in item.rglob(filename):
-                                                    if file_path.is_file():
-                                                        # 파일 크기 확인
-                                                        if file_path.stat().st_size > 0:
-                                                            download_path = file_path
-                                                            print(f"✓ 파일 발견: {download_path}")
-                                                            print(f"  파일 크기: {download_path.stat().st_size} bytes")
-                                                            break
-                                                if download_path and download_path.exists() and download_path.stat().st_size > 0:
-                                                    break
+                                        try:
+                                            for item in temp_base.iterdir():
+                                                if item.is_dir() and item.name.startswith("playwright-artifacts-"):
+                                                    try:
+                                                        for file_path in item.rglob(filename):
+                                                            if file_path.is_file():
+                                                                # 파일 크기 확인
+                                                                file_size = file_path.stat().st_size
+                                                                if file_size > 0:
+                                                                    download_path = file_path
+                                                                    print(f"✓ 파일 발견: {download_path}")
+                                                                    print(f"  파일 크기: {file_size} bytes")
+                                                                    break
+                                                        if download_path and download_path.exists():
+                                                            final_check_size = download_path.stat().st_size
+                                                            if final_check_size > 0:
+                                                                break
+                                                    except Exception as e:
+                                                        continue
+                                        except Exception as e:
+                                            print(f"Temp 폴더 검색 중 오류: {e}")
                                     
+                                    # 파일 크기 안정화 확인
                                     if download_path and download_path.exists():
-                                        # 파일명 중복 방지
-                                        save_path = DOWNLOAD_DIR / filename
-                                        counter = 1
-                                        original_path = save_path
-                                        while save_path.exists() and save_path != download_path:
-                                            stem = original_path.stem
-                                            suffix = original_path.suffix
-                                            save_path = DOWNLOAD_DIR / f"{stem}_{counter}{suffix}"
-                                            counter += 1
+                                        print(f"파일 크기 안정화 확인 중: {download_path.name}")
                                         
-                                        # 파일 복사 또는 이동
-                                        if download_path != save_path:
-                                            shutil.copy2(str(download_path), str(save_path))
-                                            print(f"✓ 파일 복사 완료: {save_path.name}")
-                                        else:
-                                            print(f"✓ 파일이 이미 올바른 위치에 있습니다: {save_path}")
+                                        # 파일 크기가 안정화될 때까지 대기
+                                        last_size = -1
+                                        stable_count = 0
+                                        max_wait = 30  # 최대 15초 대기
                                         
-                                        print(f"\n✓✓✓ 다운로드 완료! ✓✓✓")
-                                        print(f"저장 위치: {save_path}")
+                                        for wait_i in range(max_wait):
+                                            try:
+                                                await asyncio.sleep(0.5)
+                                                
+                                                if download_path.exists():
+                                                    current_size = download_path.stat().st_size
+                                                    
+                                                    # 파일 크기가 0보다 크고 안정화되었는지 확인
+                                                    if current_size > 0:
+                                                        if current_size == last_size:
+                                                            stable_count += 1
+                                                            if stable_count >= 3:  # 3번 연속 같은 크기면 완료
+                                                                print(f"✓ 파일 크기 안정화 완료: {current_size} bytes")
+                                                                break
+                                                        else:
+                                                            stable_count = 0
+                                                            last_size = current_size
+                                                    else:
+                                                        # 파일 크기가 0이면 아직 다운로드 중
+                                                        stable_count = 0
+                                                        last_size = -1
+                                            except Exception as e:
+                                                print(f"  파일 크기 확인 중 오류: {e}")
+                                                break
+                                        
+                                        # 안정화 확인 후 추가 대기
+                                        if stable_count >= 3:
+                                            await asyncio.sleep(1.0)  # 1초 추가 대기
+                                        
+                                        # 최종 파일 크기 확인
+                                        try:
+                                            final_size = download_path.stat().st_size
+                                            
+                                            if final_size > 0:
+                                                # 파일명 중복 방지
+                                                save_path = DOWNLOAD_DIR / filename
+                                                counter = 1
+                                                original_path = save_path
+                                                while save_path.exists() and save_path != download_path:
+                                                    stem = original_path.stem
+                                                    suffix = original_path.suffix
+                                                    save_path = DOWNLOAD_DIR / f"{stem}_{counter}{suffix}"
+                                                    counter += 1
+                                                
+                                                # 복사 전에 파일 크기 재확인
+                                                source_size = download_path.stat().st_size
+                                                if source_size > 0:
+                                                    # 파일 복사 또는 이동
+                                                    if download_path != save_path:
+                                                        shutil.copy2(str(download_path), str(save_path))
+                                                        # 복사 후 크기 확인
+                                                        copied_size = save_path.stat().st_size
+                                                        if copied_size > 0:
+                                                            print(f"✓ 파일 복사 완료: {save_path.name}")
+                                                            print(f"  파일 크기: {copied_size} bytes")
+                                                        else:
+                                                            print(f"⚠ 경고: 복사된 파일 크기가 0 bytes입니다!")
+                                                            print(f"  원본 크기: {source_size} bytes")
+                                                    else:
+                                                        print(f"✓ 파일이 이미 올바른 위치에 있습니다: {save_path}")
+                                                        print(f"  파일 크기: {save_path.stat().st_size} bytes")
+                                                    
+                                                    print(f"\n✓✓✓ 다운로드 완료! ✓✓✓")
+                                                    print(f"저장 위치: {save_path}")
+                                                    print(f"파일 크기: {save_path.stat().st_size} bytes")
+                                                else:
+                                                    print(f"\n⚠ 경고: 원본 파일 크기가 0 bytes입니다!")
+                                                    print(f"파일 경로: {download_path}")
+                                                    print("다운로드가 완전히 완료되지 않았을 수 있습니다.")
+                                            else:
+                                                print(f"\n⚠ 경고: 파일 크기가 여전히 0 bytes입니다!")
+                                                print(f"파일 경로: {download_path}")
+                                                print("브라우저의 다운로드 폴더를 확인해주세요.")
+                                        except Exception as e:
+                                            print(f"\n⚠ 파일 크기 확인 중 오류: {e}")
                                     else:
                                         print(f"\n⚠ 파일을 찾을 수 없습니다: {filename}")
                                         print(f"다운로드 폴더: {DOWNLOAD_DIR}")
@@ -651,6 +724,7 @@ async def test_checkbox():
                                     print(f"\n✗ 파일 처리 중 오류: {e}")
                                     import traceback
                                     traceback.print_exc()
+                                    # 오류가 발생해도 프로그램이 계속 실행되도록
                             else:
                                 print("\n⚠ 다운로드 완료를 감지하지 못했습니다.")
                                 print(f"다운로드 폴더: {DOWNLOAD_DIR}")
@@ -698,12 +772,26 @@ async def test_checkbox():
             print("프로그램을 종료하려면 Enter를 누르세요...")
             input()
             
+        except KeyboardInterrupt:
+            print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
         except Exception as e:
             print(f"\n✗ 에러 발생: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            print("\n프로그램을 종료합니다.")
 
 
 if __name__ == "__main__":
-    asyncio.run(test_checkbox())
+    try:
+        asyncio.run(test_checkbox())
+    except KeyboardInterrupt:
+        print("\n\n프로그램이 사용자에 의해 중단되었습니다.")
+    except Exception as e:
+        print(f"\n✗ 치명적 오류 발생: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("\n프로그램을 종료합니다.")
+        input("아무 키나 누르면 종료됩니다...")
 
