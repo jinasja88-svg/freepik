@@ -493,64 +493,9 @@ async def test_checkbox():
                         if button_info.get('disabled'):
                             print("⚠ 버튼이 비활성화되어 있습니다.")
                         else:
-                            # 방법 3: CDP를 통한 다운로드 리스트 확인
-                            print("\n[방법 3] CDP를 통한 다운로드 리스트 확인")
+                            # 다운로드 버튼 클릭만 수행
+                            print("\n[다운로드] 다운로드 버튼 클릭")
                             
-                            # CDP 세션 가져오기
-                            cdp_session = await context.new_cdp_session(page)
-                            
-                            # 다운로드 시작 전 다운로드 리스트 확인
-                            print("다운로드 시작 전 상태 확인 중...")
-                            initial_downloads = []
-                            try:
-                                # Browser.getDownloadPath 또는 다운로드 리스트 가져오기
-                                # CDP를 통해 다운로드 이벤트 리스너 등록
-                                await cdp_session.send("Browser.setDownloadBehavior", {
-                                    "behavior": "allow",
-                                    "downloadPath": str(DOWNLOAD_DIR)
-                                })
-                                print(f"✓ 다운로드 경로 설정: {DOWNLOAD_DIR}")
-                            except Exception as e:
-                                print(f"⚠ 다운로드 경로 설정 실패: {e}")
-                            
-                            # 다운로드 이벤트 리스너 설정
-                            download_info = {}
-                            
-                            async def handle_cdp_download(event):
-                                """CDP 다운로드 이벤트 처리"""
-                                try:
-                                    if event.get('method') == 'Browser.downloadProgress':
-                                        params = event.get('params', {})
-                                        guid = params.get('guid')
-                                        state = params.get('state')
-                                        
-                                        if guid:
-                                            if guid not in download_info:
-                                                download_info[guid] = {}
-                                            
-                                            download_info[guid]['state'] = state
-                                            
-                                            if 'receivedBytes' in params:
-                                                download_info[guid]['receivedBytes'] = params['receivedBytes']
-                                            if 'totalBytes' in params:
-                                                download_info[guid]['totalBytes'] = params['totalBytes']
-                                            
-                                            if state == 'completed':
-                                                # 다운로드 완료
-                                                if 'url' in params:
-                                                    download_info[guid]['url'] = params['url']
-                                                if 'suggestedFilename' in params:
-                                                    download_info[guid]['filename'] = params['suggestedFilename']
-                                                
-                                                print(f"✓ 다운로드 완료 감지: {download_info[guid].get('filename', 'unknown')}")
-                                
-                                except Exception as e:
-                                    print(f"CDP 이벤트 처리 오류: {e}")
-                            
-                            # CDP 이벤트 리스너 등록
-                            cdp_session.on("Browser.downloadProgress", handle_cdp_download)
-                            
-                            # 버튼 클릭
                             await download_button.click()
                             await asyncio.sleep(0.5)
                             print("✓✓✓ 다운로드 버튼 클릭 성공! ✓✓✓")
