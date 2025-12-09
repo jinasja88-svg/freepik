@@ -496,12 +496,24 @@ async def test_checkbox():
                             # 다운로드 버튼 클릭만 수행 (파일 복사/이동 없음)
                             print("\n[다운로드] 다운로드 버튼 클릭")
                             
+                            # CDP 세션을 통해 다운로드 경로 설정
+                            try:
+                                cdp_session = await context.new_cdp_session(page)
+                                await cdp_session.send("Browser.setDownloadBehavior", {
+                                    "behavior": "allow",
+                                    "downloadPath": str(DOWNLOAD_DIR)
+                                })
+                                print(f"✓ 다운로드 경로 설정: {DOWNLOAD_DIR}")
+                            except Exception as e:
+                                print(f"⚠ 다운로드 경로 설정 실패: {e}")
+                                print("브라우저의 기본 다운로드 폴더를 사용합니다.")
+                            
                             await download_button.click()
                             await asyncio.sleep(0.5)
                             print("✓✓✓ 다운로드 버튼 클릭 성공! ✓✓✓")
-                            print("\n다운로드가 시작되었습니다.")
-                            print("브라우저의 다운로드 폴더에서 파일을 확인하세요.")
-                            print("파일은 브라우저의 기본 다운로드 폴더에 저장됩니다.")
+                            print(f"\n다운로드가 시작되었습니다.")
+                            print(f"다운로드 폴더: {DOWNLOAD_DIR}")
+                            print("파일은 위 폴더에 저장됩니다.")
                             
                             await asyncio.sleep(1.0)
                     except Exception as e:
