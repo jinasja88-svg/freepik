@@ -26,10 +26,21 @@ async def connect_to_existing_browser():
         input()
         
         try:
-            # 디버깅 포트로 연결
+            # 디버깅 포트로 연결 (IPv4 우선)
             print("\n크롬 브라우저에 연결 중...")
-            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
-            print("✓ 브라우저 연결 성공!")
+            browser = None
+            try:
+                browser = await p.chromium.connect_over_cdp("http://127.0.0.1:9222")
+                print("✓ 브라우저 연결 성공! (IPv4)")
+            except Exception as e1:
+                print(f"  IPv4 연결 실패: {e1}")
+                print("  IPv6 localhost로 재시도 중...")
+                try:
+                    browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+                    print("✓ 브라우저 연결 성공! (IPv6)")
+                except Exception as e2:
+                    print(f"  IPv6 연결도 실패: {e2}")
+                    raise Exception("크롬 디버깅 모드에 연결할 수 없습니다. start_chrome_debug.bat를 실행했는지 확인하세요.")
             
             # 모든 페이지 가져오기
             contexts = browser.contexts
