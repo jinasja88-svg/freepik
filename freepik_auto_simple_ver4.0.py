@@ -1,5 +1,6 @@
 """
-Freepik 자동화 - 사용자가 띄워놓은 크롬 창에서 작업
+Freepik 자동화 - GUI 버전
+사용자가 띄워놓은 크롬 창에서 작업
 Playwright로 DOM 요소를 직접 찾아서 작업
 """
 import asyncio
@@ -9,8 +10,12 @@ from datetime import datetime
 import pyautogui
 import pyperclip
 import time
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import json
+import threading
 
-PROMPT_TEXT = "Please naturally composite the product from @img2 onto the model in @img1."
+DEFAULT_PROMPT = "Please naturally composite the product from @img2 onto the model in @img1."
 
 # 파일 경로 설정
 MODEL_DIR = Path(r"D:\private\코딩\커서\new\model")
@@ -21,8 +26,347 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.3
 
+# 프롬프트 저장 파일 경로
+PROMPTS_FILE = Path(__file__).parent / "prompts.json"
 
-async def connect_and_work():
+def load_prompts():
+    """프롬프트 리스트 불러오기"""
+    if PROMPTS_FILE.exists():
+        try:
+            with open(PROMPTS_FILE, 'r', encoding='utf-8') as f:
+                prompts = json.load(f)
+                return prompts
+        except:
+            pass
+    # 기본 프롬프트 설정
+    prompts = {
+        "1": DEFAULT_PROMPT,
+        "2": "",
+        "3": "",
+        "4": "",
+        "5": "",
+        "6": "",
+        "7": "",
+        "8": "",
+        "9": "",
+        "10": ""
+    }
+    save_prompts(prompts)
+    return prompts
+
+def save_prompts(prompts):
+    """프롬프트 리스트 저장"""
+    with open(PROMPTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(prompts, f, ensure_ascii=False, indent=2)
+
+class FreepikGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Freepik 자동화 프로그램 - ver4.0")
+        # 창 크기는 자동 조절되도록 설정 (초기값만 설정)
+        self.root.geometry("1000x750")
+        
+        # 프롬프트 리스트 불러오기
+        self.prompts = load_prompts()
+        
+        # 모드 변수
+        self.mode = tk.StringVar(value="auto")
+        
+        # 자동모드 변수
+        self.model_count = tk.IntVar(value=8)
+        self.clothes_count = tk.IntVar(value=8)
+        
+        # 지정모드 변수
+        self.model_files = []
+        self.clothes_files = []
+        
+        # 프롬프트 변수 (1~10번)
+        self.prompt_vars = {}
+        self.prompt_modified = {}  # 수정 여부 추적
+        self.selected_prompt_num = tk.IntVar(value=1)  # 선택된 프롬프트 번호
+        self.prompt_text_widgets = {}  # 텍스트 위젯 저장
+        self.prompt_status_labels = {}  # 상태 레이블 저장
+        
+        self.create_widgets()
+        
+    def create_widgets(self):
+        # 제목
+        title_label = tk.Label(self.root, text="Freepik 자동화 프로그램", font=("Arial", 16, "bold"))
+        title_label.pack(pady=10)
+        
+        # 모드 선택 프레임 (수평 배치)
+        mode_frame = ttk.LabelFrame(self.root, text="작업 모드 선택", padding=10)
+        mode_frame.pack(fill="x", padx=20, pady=10)
+        
+        mode_radio_frame = tk.Frame(mode_frame)
+        mode_radio_frame.pack()
+        
+        ttk.Radiobutton(mode_radio_frame, text="자동모드 (파일 개수 지정)", variable=self.mode, 
+                        value="auto", command=self.on_mode_change).pack(side="left", padx=20, pady=5)
+        ttk.Radiobutton(mode_radio_frame, text="지정모드 (파일 직접 선택)", variable=self.mode, 
+                        value="manual", command=self.on_mode_change).pack(side="left", padx=20, pady=5)
+        
+        # 자동모드와 지정모드를 좌우로 배치하는 컨테이너 프레임
+        mode_settings_container = tk.Frame(self.root)
+        mode_settings_container.pack(fill="x", padx=20, pady=10)
+        
+        # 자동모드 설정 프레임 (왼쪽)
+        self.auto_frame = ttk.LabelFrame(mode_settings_container, text="자동모드 설정", padding=10)
+        self.auto_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        auto_inner = tk.Frame(self.auto_frame)
+        auto_inner.pack()
+        
+        tk.Label(auto_inner, text="모델 파일 개수:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        model_spin = ttk.Spinbox(auto_inner, from_=1, to=100, textvariable=self.model_count, width=10)
+        model_spin.grid(row=0, column=1, padx=5, pady=5)
+        
+        tk.Label(auto_inner, text="클로즈 파일 개수:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        clothes_spin = ttk.Spinbox(auto_inner, from_=1, to=100, textvariable=self.clothes_count, width=10)
+        clothes_spin.grid(row=1, column=1, padx=5, pady=5)
+        
+        # 지정모드 설정 프레임 (오른쪽)
+        self.manual_frame = ttk.LabelFrame(mode_settings_container, text="지정모드 설정", padding=10)
+        self.manual_frame.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        
+        manual_inner = tk.Frame(self.manual_frame)
+        manual_inner.pack()
+        
+        tk.Button(manual_inner, text="모델 파일 선택", command=self.select_model_files, width=20).grid(row=0, column=0, padx=5, pady=5)
+        self.model_files_label = tk.Label(manual_inner, text="선택된 파일: 없음", fg="gray")
+        self.model_files_label.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        
+        tk.Button(manual_inner, text="클로즈 파일 선택", command=self.select_clothes_files, width=20).grid(row=1, column=0, padx=5, pady=5)
+        self.clothes_files_label = tk.Label(manual_inner, text="선택된 파일: 없음", fg="gray")
+        self.clothes_files_label.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        
+        # 프롬프트 입력 프레임
+        prompt_frame = ttk.LabelFrame(self.root, text="프롬프트 설정", padding=10)
+        prompt_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # 프롬프트 리스트 및 입력 영역
+        prompt_list_frame = tk.Frame(prompt_frame)
+        prompt_list_frame.pack(fill="both", expand=True, pady=5)
+        
+        # 스크롤 가능한 프레임
+        canvas = tk.Canvas(prompt_list_frame, height=250)
+        scrollbar = ttk.Scrollbar(prompt_list_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 프롬프트 입력 영역 (1~10번)
+        for i in range(1, 11):
+            row_frame = tk.Frame(scrollable_frame)
+            row_frame.pack(fill="x", padx=5, pady=3)
+            
+            # 라디오 버튼 (선택)
+            ttk.Radiobutton(row_frame, text=str(i), variable=self.selected_prompt_num, 
+                           value=i, command=lambda n=i: self.on_prompt_selected(n)).pack(side="left", padx=5)
+            
+            # 프롬프트 텍스트 입력창
+            prompt_var = tk.StringVar()
+            self.prompt_vars[i] = prompt_var
+            self.prompt_modified[i] = False
+            
+            # 텍스트 입력창 (Entry 대신 Text 사용)
+            text_widget = tk.Text(row_frame, height=2, wrap=tk.WORD, width=50)
+            text_widget.pack(side="left", fill="x", expand=True, padx=5)
+            saved_prompt = self.prompts.get(str(i), "")
+            text_widget.insert("1.0", saved_prompt)
+            text_widget.bind("<KeyRelease>", lambda e, n=i: self.on_prompt_modified(n))
+            self.prompt_text_widgets[i] = text_widget
+            
+            # 저장 상태 표시 레이블 (초기값: 저장됨 또는 빈 상태)
+            status_label = tk.Label(row_frame, text="", fg="green", width=10)
+            status_label.pack(side="left", padx=5)
+            self.prompt_status_labels[i] = status_label
+            self.prompt_modified[i] = False  # 초기값은 수정 안됨
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 저장 버튼
+        save_button_frame = tk.Frame(prompt_frame)
+        save_button_frame.pack(fill="x", pady=10)
+        tk.Button(save_button_frame, text="프롬프트 저장", command=self.save_all_prompts, 
+                 bg="#2196F3", fg="white", font=("Arial", 10, "bold"), width=15, height=2).pack()
+        
+        # 초기 선택
+        self.on_prompt_selected(1)
+        
+        # 시작 버튼
+        start_frame = tk.Frame(self.root)
+        start_frame.pack(pady=20)
+        
+        self.start_button = tk.Button(start_frame, text="작업 시작", command=self.start_automation, 
+                                      bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), width=20, height=2)
+        self.start_button.pack()
+        
+        # 초기 모드 설정
+        self.on_mode_change()
+        
+        # 창 크기 자동 조절 (모든 위젯이 보이도록)
+        self.root.update_idletasks()
+        self.adjust_window_size()
+        
+    def on_mode_change(self):
+        """모드 변경 시 UI 업데이트"""
+        if self.mode.get() == "auto":
+            self.auto_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+            self.manual_frame.pack_forget()
+        else:
+            self.auto_frame.pack_forget()
+            self.manual_frame.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        
+        # 창 크기 재조절
+        self.root.update_idletasks()
+        self.adjust_window_size()
+    
+    def adjust_window_size(self):
+        """창 크기를 자동으로 조절하여 모든 위젯이 보이도록"""
+        self.root.update_idletasks()
+        
+        # 프롬프트 텍스트 입력창의 실제 너비를 기준으로 창 너비 계산
+        if self.prompt_text_widgets:
+            # 첫 번째 텍스트 위젯의 너비를 기준으로 계산
+            first_widget = self.prompt_text_widgets[1]
+            widget_width = first_widget.winfo_reqwidth()
+            # 라디오 버튼 + 상태 레이블 + 패딩을 고려하여 약간의 여유 공간 추가
+            min_width = widget_width + 200  # 여유 공간 (라디오 버튼, 상태 레이블, 패딩 등)
+        else:
+            # 기본값 (텍스트 입력창 width=50 기준)
+            min_width = 700
+        
+        # 필요한 높이 계산
+        height = self.root.winfo_reqheight()
+        
+        # 최소 높이 설정
+        min_height = max(600, height)
+        
+        # 화면 크기 확인
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # 화면 크기를 넘지 않도록 조절
+        final_width = min(min_width, screen_width - 50)
+        final_height = min(min_height, screen_height - 50)
+        
+        # 창 크기 설정
+        self.root.geometry(f"{final_width}x{final_height}")
+        
+        # 창을 화면 중앙에 배치
+        x = (screen_width - final_width) // 2
+        y = (screen_height - final_height) // 2
+        self.root.geometry(f"{final_width}x{final_height}+{x}+{y}")
+    
+    def select_model_files(self):
+        """모델 파일 선택"""
+        files = filedialog.askopenfilenames(
+            title="모델 파일 선택",
+            filetypes=[("이미지 파일", "*.png *.jpg *.jpeg"), ("모든 파일", "*.*")]
+        )
+        if files:
+            self.model_files = [Path(f) for f in files]
+            file_names = ", ".join([f.name for f in self.model_files[:3]])
+            if len(self.model_files) > 3:
+                file_names += f" 외 {len(self.model_files) - 3}개"
+            self.model_files_label.config(text=f"선택된 파일: {file_names}", fg="black")
+    
+    def select_clothes_files(self):
+        """클로즈 파일 선택"""
+        files = filedialog.askopenfilenames(
+            title="클로즈 파일 선택",
+            filetypes=[("이미지 파일", "*.png *.jpg *.jpeg"), ("모든 파일", "*.*")]
+        )
+        if files:
+            self.clothes_files = [Path(f) for f in files]
+            file_names = ", ".join([f.name for f in self.clothes_files[:3]])
+            if len(self.clothes_files) > 3:
+                file_names += f" 외 {len(self.clothes_files) - 3}개"
+            self.clothes_files_label.config(text=f"선택된 파일: {file_names}", fg="black")
+    
+    def on_prompt_selected(self, num):
+        """프롬프트 선택 시 호출"""
+        # 선택된 프롬프트로 포커스 이동
+        if num in self.prompt_text_widgets:
+            self.prompt_text_widgets[num].focus_set()
+    
+    def on_prompt_modified(self, num):
+        """프롬프트 수정 시 호출"""
+        # 수정 표시
+        self.prompt_modified[num] = True
+        if num in self.prompt_status_labels:
+            self.prompt_status_labels[num].config(text="저장 안됨", fg="red")
+    
+    def save_all_prompts(self):
+        """모든 프롬프트 저장"""
+        saved_count = 0
+        for i in range(1, 11):
+            if i in self.prompt_text_widgets:
+                prompt_text = self.prompt_text_widgets[i].get("1.0", tk.END).strip()
+                self.prompts[str(i)] = prompt_text
+                # 저장 상태 업데이트
+                self.prompt_modified[i] = False
+                if i in self.prompt_status_labels:
+                    self.prompt_status_labels[i].config(text="저장됨", fg="green")
+                saved_count += 1
+        
+        save_prompts(self.prompts)
+        messagebox.showinfo("저장 완료", f"모든 프롬프트가 저장되었습니다. ({saved_count}개)")
+        
+        # 2초 후 "저장됨" 표시 제거
+        self.root.after(2000, self.clear_saved_status)
+    
+    def clear_saved_status(self):
+        """저장 상태 표시 제거"""
+        for i in range(1, 11):
+            if i in self.prompt_status_labels and not self.prompt_modified[i]:
+                self.prompt_status_labels[i].config(text="")
+    
+    def start_automation(self):
+        """자동화 시작"""
+        # 입력 검증
+        if self.mode.get() == "manual":
+            if not self.model_files or not self.clothes_files:
+                messagebox.showerror("오류", "모델 파일과 클로즈 파일을 모두 선택해주세요.")
+                return
+        
+        # 선택된 프롬프트 가져오기
+        selected_num = self.selected_prompt_num.get()
+        if selected_num in self.prompt_text_widgets:
+            prompt_text = self.prompt_text_widgets[selected_num].get("1.0", tk.END).strip()
+        else:
+            prompt_text = ""
+        
+        if not prompt_text:
+            messagebox.showerror("오류", "프롬프트를 입력해주세요.")
+            return
+        
+        # 설정값 저장
+        self.settings = {
+            "mode": self.mode.get(),
+            "prompt": prompt_text,
+            "model_count": self.model_count.get() if self.mode.get() == "auto" else None,
+            "clothes_count": self.clothes_count.get() if self.mode.get() == "auto" else None,
+            "model_files": self.model_files if self.mode.get() == "manual" else None,
+            "clothes_files": self.clothes_files if self.mode.get() == "manual" else None
+        }
+        
+        # GUI 닫기
+        self.root.destroy()
+        
+        # 자동화 시작
+        asyncio.run(connect_and_work(self.settings))
+
+
+async def connect_and_work(settings):
     """크롬에 연결해서 작업"""
     print("=" * 50)
     print("Freepik 자동화 - 기존 크롬 연결")
@@ -36,6 +380,10 @@ async def connect_and_work():
     print("4. 이 프로그램을 실행하세요")
     print("\n준비되면 Enter를 누르세요...")
     input()
+    
+    # 설정값 사용
+    PROMPT_TEXT = settings["prompt"]
+    mode = settings["mode"]
     
     async with async_playwright() as p:
         try:
@@ -454,6 +802,420 @@ async def connect_and_work():
                 await asyncio.sleep(2.0)  # 안전을 위한 추가 대기
                 return False
             
+            # 단일 작업 처리 함수
+            async def process_single_task(page, settings, model_name, clothes_name, current_task, total_tasks, delete_selector_1):
+                """단일 작업 처리 (프롬프트 입력, 생성, 다운로드, 삭제)"""
+                PROMPT_TEXT = settings["prompt"]
+                
+                # 2단계: 프롬프트 입력
+                print("\n=== 2단계: 프롬프트 입력 ===")
+                
+                # 프롬프트 입력칸 찾기 (여러 방법 시도)
+                prompt_el = None
+                
+                selectors = [
+                    "#imagePromptInput > div > div > div.relative.flex-1 > div > div.text-surface-foreground-0.w-full.flex-1.overflow-y-auto.whitespace-pre-wrap.text-sm.leading-relaxed.outline-none.transition-all.user-select-all.dynamic-prompt.scrollbar-thin.scrollbar-thumb-neutral-800.\\32 xl-legacy\\:max-h-96.relative.max-h-\\[46px\\].min-h-\\[103px\\].rounded.p-2.text-sm.focus-visible\\:outline-none.focus-visible\\:ring-0.md\\:max-h-52.xl\\:max-h-72.empty-prompt",
+                    "div.empty-prompt",
+                    "[contenteditable='true']",
+                    "div[contenteditable]"
+                ]
+                
+                for selector in selectors:
+                    try:
+                        prompt_el = await page.wait_for_selector(selector, timeout=3000)
+                        print(f"✓ 프롬프트 입력칸 찾음: {selector[:50]}...")
+                        break
+                    except:
+                        continue
+                
+                if not prompt_el:
+                    print("✗ 프롬프트 입력칸을 찾을 수 없습니다.")
+                    print("페이지를 새로고침하거나 수동으로 확인해주세요.")
+                    print("다음 작업으로 넘어갑니다...")
+                    return
+                
+                # 프롬프트 입력
+                await prompt_el.click()
+                await asyncio.sleep(0.3)
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Delete")
+                await asyncio.sleep(0.2)
+                
+                print(f"프롬프트 입력 중: {PROMPT_TEXT}")
+                await prompt_el.type(PROMPT_TEXT, delay=50)
+                await asyncio.sleep(0.5)
+                
+                # 입력 확인
+                current_value = await prompt_el.evaluate("""
+                    el => el.textContent || el.innerText || el.value || ''
+                """)
+                print(f"입력된 프롬프트: {current_value[:50]}...")
+                
+                if PROMPT_TEXT[:20] in current_value:
+                    print("✓ 프롬프트 입력 완료")
+                else:
+                    print("⚠ 경고: 프롬프트가 제대로 입력되지 않았을 수 있습니다.")
+                
+                # 3단계: Generate 버튼 클릭
+                print("\n=== 3단계: Generate 버튼 클릭 ===")
+                
+                # Generate 버튼 찾기
+                gen_btn = None
+                
+                try:
+                    gen_btn = await page.wait_for_selector('button[data-cy="generate-button"]', timeout=5000)
+                    print("✓ Generate 버튼 찾음")
+                except:
+                    # fallback: 텍스트로 찾기
+                    gen_btn = await page.evaluate_handle("""
+                        () => {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            return buttons.find(btn => {
+                                const text = (btn.textContent || '').toLowerCase();
+                                return text.includes('generate') || text.includes('생성');
+                            });
+                        }
+                    """)
+                    if gen_btn:
+                        print("✓ Generate 버튼 찾음 (텍스트 기반)")
+                    else:
+                        print("✗ Generate 버튼을 찾을 수 없습니다.")
+                        print("다음 작업으로 넘어갑니다...")
+                        return
+                
+                # 버튼 활성화까지 대기
+                print("버튼 활성화 대기 중...")
+                for i in range(20):
+                    disabled = await gen_btn.get_attribute("aria-disabled")
+                    if disabled != "true":
+                        print(f"✓ 버튼 활성화됨 ({i * 0.15:.1f}초 후)")
+                        break
+                    await asyncio.sleep(0.15)
+                
+                # Generate 버튼 클릭
+                await gen_btn.click()
+                print("✓ Generate 버튼 클릭 완료!")
+                
+                # 4단계: 이미지 생성 완료 대기
+                print("\n=== 4단계: 이미지 생성 완료 대기 ===")
+                await wait_for_image_completion()
+                
+                # 5단계: 다운로드
+                print("\n=== 5단계: 이미지 다운로드 ===")
+                download_success = await click_checkbox_and_download(model_name, clothes_name)
+                if not download_success:
+                    print("⚠ 다운로드 실패했지만 계속 진행합니다...")
+                
+                # 6단계: 업로드된 파일 삭제 (2번)
+                print("\n=== 6단계: 업로드된 파일 삭제 ===")
+                
+                # 첫 번째 삭제 버튼 클릭
+                print("첫 번째 삭제 버튼 클릭 중...")
+                try:
+                    delete_btn_1 = await page.wait_for_selector(delete_selector_1, timeout=5000)
+                    await delete_btn_1.click()
+                    print("✓ 첫 번째 삭제 버튼 클릭 완료")
+                except Exception as e:
+                    print(f"✗ 첫 번째 삭제 버튼 찾기 실패: {e}")
+                    # JavaScript로 찾기 시도
+                    try:
+                        delete_btn_1 = await page.evaluate_handle("""
+                            () => {
+                                const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
+                                if (!container) return null;
+                                const firstItem = container.querySelector('div:nth-child(3)');
+                                if (firstItem) {
+                                    // 먼저 클래스로 찾기
+                                    const btn = firstItem.querySelector('button.absolute.right-1.top-1');
+                                    if (btn) return btn;
+                                    // 또는 SVG 아이콘으로 찾기
+                                    const allBtns = firstItem.querySelectorAll('button');
+                                    for (let btn of allBtns) {
+                                        const svg = btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]');
+                                        if (svg) return btn;
+                                    }
+                                }
+                                return null;
+                            }
+                        """)
+                        if delete_btn_1 and await delete_btn_1.evaluate("el => el !== null"):
+                            await delete_btn_1.click()
+                            print("✓ 첫 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
+                        else:
+                            raise Exception("버튼을 찾을 수 없음")
+                    except Exception as e2:
+                        print(f"JavaScript 기반 찾기도 실패: {e2}")
+                        print("수동으로 첫 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
+                        input()
+                
+                # 첫 번째 삭제 후 2초 대기
+                print("첫 번째 파일 삭제 완료. 2초 대기 중...")
+                await asyncio.sleep(2.0)
+                
+                # 두 번째 삭제 버튼 클릭 (첫 번째 삭제 후 nth-child(3) 위치로 이동)
+                print("두 번째 삭제 버튼 클릭 중...")
+                try:
+                    # 첫 번째 파일 삭제 후 두 번째 파일이 nth-child(3) 위치로 이동
+                    delete_selector_2_after = "#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3 > div:nth-child(3) > div > div > div > button"
+                    delete_btn_2 = await page.wait_for_selector(delete_selector_2_after, timeout=5000)
+                    await delete_btn_2.click()
+                    print("✓ 두 번째 삭제 버튼 클릭 완료")
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    print(f"✗ 두 번째 삭제 버튼 찾기 실패: {e}")
+                    # JavaScript로 찾기 시도
+                    try:
+                        delete_btn_2 = await page.evaluate_handle("""
+                            () => {
+                                const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
+                                if (!container) return null;
+                                // 첫 번째 파일 삭제 후 남은 파일 찾기
+                                // nth-child(3) 위치의 파일 찾기
+                                const secondItem = container.querySelector('div:nth-child(3)');
+                                if (secondItem) {
+                                    const btn = secondItem.querySelector('button.absolute.right-1.top-1');
+                                    if (btn) return btn;
+                                    // 또는 모든 버튼 중에서 찾기
+                                    const allBtns = secondItem.querySelectorAll('button');
+                                    for (let btn of allBtns) {
+                                        if (btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]')) {
+                                            return btn;
+                                        }
+                                    }
+                                }
+                                // fallback: 모든 삭제 버튼 중 첫 번째
+                                const allDeleteBtns = container.querySelectorAll('button.absolute.right-1.top-1');
+                                if (allDeleteBtns.length > 0) {
+                                    return allDeleteBtns[0];
+                                }
+                                return null;
+                            }
+                        """)
+                        if delete_btn_2 and await delete_btn_2.evaluate("el => el !== null"):
+                            await delete_btn_2.click()
+                            print("✓ 두 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
+                            await asyncio.sleep(1.0)
+                        else:
+                            raise Exception("버튼을 찾을 수 없음")
+                    except Exception as e2:
+                        print(f"JavaScript 기반 찾기도 실패: {e2}")
+                        print("수동으로 두 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
+                        input()
+                
+                print(f"✓ 작업 {current_task}/{total_tasks} 완료!")
+                
+                # 다음 작업 전 대기 (마지막 작업이 아닌 경우)
+                if current_task < total_tasks:
+                    print("다음 작업을 위해 2초 대기 중...")
+                    await asyncio.sleep(2.0)
+            
+            # 단일 작업 처리 함수
+            async def process_single_task(page, settings, model_name, clothes_name, current_task, total_tasks, delete_selector_1):
+                """단일 작업 처리 (프롬프트 입력, 생성, 다운로드, 삭제)"""
+                PROMPT_TEXT = settings["prompt"]
+                
+                # 2단계: 프롬프트 입력
+                print("\n=== 2단계: 프롬프트 입력 ===")
+                
+                # 프롬프트 입력칸 찾기 (여러 방법 시도)
+                prompt_el = None
+                
+                selectors = [
+                    "#imagePromptInput > div > div > div.relative.flex-1 > div > div.text-surface-foreground-0.w-full.flex-1.overflow-y-auto.whitespace-pre-wrap.text-sm.leading-relaxed.outline-none.transition-all.user-select-all.dynamic-prompt.scrollbar-thin.scrollbar-thumb-neutral-800.\\32 xl-legacy\\:max-h-96.relative.max-h-\\[46px\\].min-h-\\[103px\\].rounded.p-2.text-sm.focus-visible\\:outline-none.focus-visible\\:ring-0.md\\:max-h-52.xl\\:max-h-72.empty-prompt",
+                    "div.empty-prompt",
+                    "[contenteditable='true']",
+                    "div[contenteditable]"
+                ]
+                
+                for selector in selectors:
+                    try:
+                        prompt_el = await page.wait_for_selector(selector, timeout=3000)
+                        print(f"✓ 프롬프트 입력칸 찾음: {selector[:50]}...")
+                        break
+                    except:
+                        continue
+                
+                if not prompt_el:
+                    print("✗ 프롬프트 입력칸을 찾을 수 없습니다.")
+                    print("페이지를 새로고침하거나 수동으로 확인해주세요.")
+                    print("다음 작업으로 넘어갑니다...")
+                    return
+                
+                # 프롬프트 입력
+                await prompt_el.click()
+                await asyncio.sleep(0.3)
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Delete")
+                await asyncio.sleep(0.2)
+                
+                print(f"프롬프트 입력 중: {PROMPT_TEXT}")
+                await prompt_el.type(PROMPT_TEXT, delay=50)
+                await asyncio.sleep(0.5)
+                
+                # 입력 확인
+                current_value = await prompt_el.evaluate("""
+                    el => el.textContent || el.innerText || el.value || ''
+                """)
+                print(f"입력된 프롬프트: {current_value[:50]}...")
+                
+                if PROMPT_TEXT[:20] in current_value:
+                    print("✓ 프롬프트 입력 완료")
+                else:
+                    print("⚠ 경고: 프롬프트가 제대로 입력되지 않았을 수 있습니다.")
+                
+                # 3단계: Generate 버튼 클릭
+                print("\n=== 3단계: Generate 버튼 클릭 ===")
+                
+                # Generate 버튼 찾기
+                gen_btn = None
+                
+                try:
+                    gen_btn = await page.wait_for_selector('button[data-cy="generate-button"]', timeout=5000)
+                    print("✓ Generate 버튼 찾음")
+                except:
+                    # fallback: 텍스트로 찾기
+                    gen_btn = await page.evaluate_handle("""
+                        () => {
+                            const buttons = Array.from(document.querySelectorAll('button'));
+                            return buttons.find(btn => {
+                                const text = (btn.textContent || '').toLowerCase();
+                                return text.includes('generate') || text.includes('생성');
+                            });
+                        }
+                    """)
+                    if gen_btn:
+                        print("✓ Generate 버튼 찾음 (텍스트 기반)")
+                    else:
+                        print("✗ Generate 버튼을 찾을 수 없습니다.")
+                        print("다음 작업으로 넘어갑니다...")
+                        return
+                
+                # 버튼 활성화까지 대기
+                print("버튼 활성화 대기 중...")
+                for i in range(20):
+                    disabled = await gen_btn.get_attribute("aria-disabled")
+                    if disabled != "true":
+                        print(f"✓ 버튼 활성화됨 ({i * 0.15:.1f}초 후)")
+                        break
+                    await asyncio.sleep(0.15)
+                
+                # Generate 버튼 클릭
+                await gen_btn.click()
+                print("✓ Generate 버튼 클릭 완료!")
+                
+                # 4단계: 이미지 생성 완료 대기
+                print("\n=== 4단계: 이미지 생성 완료 대기 ===")
+                await wait_for_image_completion()
+                
+                # 5단계: 다운로드
+                print("\n=== 5단계: 이미지 다운로드 ===")
+                download_success = await click_checkbox_and_download(model_name, clothes_name)
+                if not download_success:
+                    print("⚠ 다운로드 실패했지만 계속 진행합니다...")
+                
+                # 6단계: 업로드된 파일 삭제 (2번)
+                print("\n=== 6단계: 업로드된 파일 삭제 ===")
+                
+                # 첫 번째 삭제 버튼 클릭
+                print("첫 번째 삭제 버튼 클릭 중...")
+                try:
+                    delete_btn_1 = await page.wait_for_selector(delete_selector_1, timeout=5000)
+                    await delete_btn_1.click()
+                    print("✓ 첫 번째 삭제 버튼 클릭 완료")
+                except Exception as e:
+                    print(f"✗ 첫 번째 삭제 버튼 찾기 실패: {e}")
+                    # JavaScript로 찾기 시도
+                    try:
+                        delete_btn_1 = await page.evaluate_handle("""
+                            () => {
+                                const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
+                                if (!container) return null;
+                                const firstItem = container.querySelector('div:nth-child(3)');
+                                if (firstItem) {
+                                    // 먼저 클래스로 찾기
+                                    const btn = firstItem.querySelector('button.absolute.right-1.top-1');
+                                    if (btn) return btn;
+                                    // 또는 SVG 아이콘으로 찾기
+                                    const allBtns = firstItem.querySelectorAll('button');
+                                    for (let btn of allBtns) {
+                                        const svg = btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]');
+                                        if (svg) return btn;
+                                    }
+                                }
+                                return null;
+                            }
+                        """)
+                        if delete_btn_1 and await delete_btn_1.evaluate("el => el !== null"):
+                            await delete_btn_1.click()
+                            print("✓ 첫 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
+                        else:
+                            raise Exception("버튼을 찾을 수 없음")
+                    except Exception as e2:
+                        print(f"JavaScript 기반 찾기도 실패: {e2}")
+                        print("수동으로 첫 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
+                        input()
+                
+                # 첫 번째 삭제 후 2초 대기
+                print("첫 번째 파일 삭제 완료. 2초 대기 중...")
+                await asyncio.sleep(2.0)
+                
+                # 두 번째 삭제 버튼 클릭 (첫 번째 삭제 후 nth-child(3) 위치로 이동)
+                print("두 번째 삭제 버튼 클릭 중...")
+                try:
+                    # 첫 번째 파일 삭제 후 두 번째 파일이 nth-child(3) 위치로 이동
+                    delete_selector_2_after = "#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3 > div:nth-child(3) > div > div > div > button"
+                    delete_btn_2 = await page.wait_for_selector(delete_selector_2_after, timeout=5000)
+                    await delete_btn_2.click()
+                    print("✓ 두 번째 삭제 버튼 클릭 완료")
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    print(f"✗ 두 번째 삭제 버튼 찾기 실패: {e}")
+                    # JavaScript로 찾기 시도
+                    try:
+                        delete_btn_2 = await page.evaluate_handle("""
+                            () => {
+                                const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
+                                if (!container) return null;
+                                // 첫 번째 파일 삭제 후 남은 파일 찾기
+                                // nth-child(3) 위치의 파일 찾기
+                                const secondItem = container.querySelector('div:nth-child(3)');
+                                if (secondItem) {
+                                    const btn = secondItem.querySelector('button.absolute.right-1.top-1');
+                                    if (btn) return btn;
+                                    // 또는 모든 버튼 중에서 찾기
+                                    const allBtns = secondItem.querySelectorAll('button');
+                                    for (let btn of allBtns) {
+                                        if (btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]')) {
+                                            return btn;
+                                        }
+                                    }
+                                }
+                                // fallback: 모든 삭제 버튼 중 첫 번째
+                                const allDeleteBtns = container.querySelectorAll('button.absolute.right-1.top-1');
+                                if (allDeleteBtns.length > 0) {
+                                    return allDeleteBtns[0];
+                                }
+                                return null;
+                            }
+                        """)
+                        if delete_btn_2 and await delete_btn_2.evaluate("el => el !== null"):
+                            await delete_btn_2.click()
+                            print("✓ 두 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
+                            await asyncio.sleep(1.0)
+                        else:
+                            raise Exception("버튼을 찾을 수 없음")
+                    except Exception as e2:
+                        print(f"JavaScript 기반 찾기도 실패: {e2}")
+                        print("수동으로 두 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
+                        input()
+                
+                print(f"✓ 작업 {current_task}/{total_tasks} 완료!")
+                
+                # 다음 작업 전 대기 (마지막 작업이 아닌 경우)
+                if current_task < total_tasks:
+                    print("다음 작업을 위해 2초 대기 중...")
+                    await asyncio.sleep(2.0)
+            
             # 체크박스 클릭 및 다운로드 함수
             async def click_checkbox_and_download(model_idx, clothes_idx):
                 """체크박스 클릭 후 다운로드 버튼 클릭"""
@@ -763,235 +1525,78 @@ async def connect_and_work():
                     print(f"{debug_info}")
                     return False
             
-            # 이중 루프 시작
+            # 루프 시작
             total_work = 0
-            print("\n" + "=" * 60)
-            print("이중 루프 자동화 시작!")
-            print("외부 루프: clothes 1~8 (8번)")
-            print("내부 루프: model 1~8 (8번)")
-            print("총 작업 횟수: 64번")
-            print("=" * 60)
             
-            # 외부 루프: clothes 1~8
-            for clothes_idx in range(1, 9):
-                print(f"\n{'='*60}")
-                print(f"외부 루프: clothes {clothes_idx}.png")
-                print(f"{'='*60}")
+            if settings["mode"] == "auto":
+                # 자동모드: 파일 개수 지정
+                model_count = settings["model_count"]
+                clothes_count = settings["clothes_count"]
+                total_tasks = model_count * clothes_count
                 
-                # 내부 루프: model 1~8
-                for model_idx in range(1, 9):
-                    total_work += 1
-                    print(f"\n{'─'*60}")
-                    print(f"작업 {total_work}/64: model {model_idx}.png + clothes {clothes_idx}.png")
-                    print(f"{'─'*60}")
+                print("\n" + "=" * 60)
+                print("자동모드 - 이중 루프 자동화 시작!")
+                print(f"외부 루프: clothes 1~{clothes_count} ({clothes_count}번)")
+                print(f"내부 루프: model 1~{model_count} ({model_count}번)")
+                print(f"총 작업 횟수: {total_tasks}번")
+                print("=" * 60)
+                
+                # 외부 루프: clothes 1~clothes_count
+                for clothes_idx in range(1, clothes_count + 1):
+                    print(f"\n{'='*60}")
+                    print(f"외부 루프: clothes {clothes_idx}.png")
+                    print(f"{'='*60}")
                     
-                    # 1단계: 파일 업로드
-                    print(f"\n=== 1단계: 파일 업로드 ===")
-                    await upload_file(f"{model_idx}.png", upload_selector_1, MODEL_DIR)
-                    await upload_file(f"{clothes_idx}.png", upload_selector_2, CLOTHES_DIR)
-                    await asyncio.sleep(1.0)  # 파일 업로드 완료 대기
+                    # 내부 루프: model 1~model_count
+                    for model_idx in range(1, model_count + 1):
+                        total_work += 1
+                        print(f"\n{'─'*60}")
+                        print(f"작업 {total_work}/{total_tasks}: model {model_idx}.png + clothes {clothes_idx}.png")
+                        print(f"{'─'*60}")
+                        
+                        # 1단계: 파일 업로드
+                        print(f"\n=== 1단계: 파일 업로드 ===")
+                        await upload_file(f"{model_idx}.png", upload_selector_1, MODEL_DIR)
+                        await upload_file(f"{clothes_idx}.png", upload_selector_2, CLOTHES_DIR)
+                        await asyncio.sleep(1.0)  # 파일 업로드 완료 대기
+                        
+                        # 나머지 작업 수행
+                        await process_single_task(page, settings, str(model_idx), str(clothes_idx), total_work, total_tasks, delete_selector_1)
+                        
+            else:
+                # 지정모드: 선택한 파일들로 작업
+                model_files = settings["model_files"]
+                clothes_files = settings["clothes_files"]
+                total_tasks = len(model_files) * len(clothes_files)
+                
+                print("\n" + "=" * 60)
+                print("지정모드 - 선택한 파일로 자동화 시작!")
+                print(f"모델 파일: {len(model_files)}개")
+                print(f"클로즈 파일: {len(clothes_files)}개")
+                print(f"총 작업 횟수: {total_tasks}번")
+                print("=" * 60)
+                
+                # 외부 루프: clothes 파일들
+                for clothes_file in clothes_files:
+                    print(f"\n{'='*60}")
+                    print(f"외부 루프: {clothes_file.name}")
+                    print(f"{'='*60}")
                     
-                    # 2단계: 프롬프트 입력
-                    print("\n=== 2단계: 프롬프트 입력 ===")
-                    
-                    # 프롬프트 입력칸 찾기 (여러 방법 시도)
-                    prompt_el = None
-                    
-                    selectors = [
-                        "#imagePromptInput > div > div > div.relative.flex-1 > div > div.text-surface-foreground-0.w-full.flex-1.overflow-y-auto.whitespace-pre-wrap.text-sm.leading-relaxed.outline-none.transition-all.user-select-all.dynamic-prompt.scrollbar-thin.scrollbar-thumb-neutral-800.\\32 xl-legacy\\:max-h-96.relative.max-h-\\[46px\\].min-h-\\[103px\\].rounded.p-2.text-sm.focus-visible\\:outline-none.focus-visible\\:ring-0.md\\:max-h-52.xl\\:max-h-72.empty-prompt",
-                        "div.empty-prompt",
-                        "[contenteditable='true']",
-                        "div[contenteditable]"
-                    ]
-                    
-                    for selector in selectors:
-                        try:
-                            prompt_el = await page.wait_for_selector(selector, timeout=3000)
-                            print(f"✓ 프롬프트 입력칸 찾음: {selector[:50]}...")
-                            break
-                        except:
-                            continue
-                    
-                    if not prompt_el:
-                        print("✗ 프롬프트 입력칸을 찾을 수 없습니다.")
-                        print("페이지를 새로고침하거나 수동으로 확인해주세요.")
-                        print("다음 작업으로 넘어갑니다...")
-                        continue
-                    
-                    # 프롬프트 입력
-                    await prompt_el.click()
-                    await asyncio.sleep(0.3)
-                    await page.keyboard.press("Control+A")
-                    await page.keyboard.press("Delete")
-                    await asyncio.sleep(0.2)
-                    
-                    print(f"프롬프트 입력 중: {PROMPT_TEXT}")
-                    await prompt_el.type(PROMPT_TEXT, delay=50)
-                    await asyncio.sleep(0.5)
-                    
-                    # 입력 확인
-                    current_value = await prompt_el.evaluate("""
-                        el => el.textContent || el.innerText || el.value || ''
-                    """)
-                    print(f"입력된 프롬프트: {current_value[:50]}...")
-                    
-                    if PROMPT_TEXT[:20] in current_value:
-                        print("✓ 프롬프트 입력 완료")
-                    else:
-                        print("⚠ 경고: 프롬프트가 제대로 입력되지 않았을 수 있습니다.")
-                    
-                    # 3단계: Generate 버튼 클릭
-                    print("\n=== 3단계: Generate 버튼 클릭 ===")
-                    
-                    # Generate 버튼 찾기
-                    gen_btn = None
-                    
-                    try:
-                        gen_btn = await page.wait_for_selector('button[data-cy="generate-button"]', timeout=5000)
-                        print("✓ Generate 버튼 찾음")
-                    except:
-                        # fallback: 텍스트로 찾기
-                        gen_btn = await page.evaluate_handle("""
-                            () => {
-                                const buttons = Array.from(document.querySelectorAll('button'));
-                                return buttons.find(btn => {
-                                    const text = (btn.textContent || '').toLowerCase();
-                                    return text.includes('generate') || text.includes('생성');
-                                });
-                            }
-                        """)
-                        if gen_btn:
-                            print("✓ Generate 버튼 찾음 (텍스트 기반)")
-                        else:
-                            print("✗ Generate 버튼을 찾을 수 없습니다.")
-                            print("다음 작업으로 넘어갑니다...")
-                            continue
-                    
-                    # 버튼 활성화까지 대기
-                    print("버튼 활성화 대기 중...")
-                    for i in range(20):
-                        disabled = await gen_btn.get_attribute("aria-disabled")
-                        if disabled != "true":
-                            print(f"✓ 버튼 활성화됨 ({i * 0.15:.1f}초 후)")
-                            break
-                        await asyncio.sleep(0.15)
-                    
-                    # Generate 버튼 클릭
-                    await gen_btn.click()
-                    print("✓ Generate 버튼 클릭 완료!")
-                    
-                    # 4단계: 이미지 생성 완료 대기
-                    print("\n=== 4단계: 이미지 생성 완료 대기 ===")
-                    await wait_for_image_completion()
-                    
-                    # 5단계: 다운로드
-                    print("\n=== 5단계: 이미지 다운로드 ===")
-                    download_success = await click_checkbox_and_download(model_idx, clothes_idx)
-                    if not download_success:
-                        print("⚠ 다운로드 실패했지만 계속 진행합니다...")
-                    
-                    # 6단계: 업로드된 파일 삭제 (2번)
-                    print("\n=== 6단계: 업로드된 파일 삭제 ===")
-                    
-                    # 첫 번째 삭제 버튼 클릭
-                    print("첫 번째 삭제 버튼 클릭 중...")
-                    try:
-                        delete_btn_1 = await page.wait_for_selector(delete_selector_1, timeout=5000)
-                        await delete_btn_1.click()
-                        print("✓ 첫 번째 삭제 버튼 클릭 완료")
-                    except Exception as e:
-                        print(f"✗ 첫 번째 삭제 버튼 찾기 실패: {e}")
-                        # JavaScript로 찾기 시도
-                        try:
-                            delete_btn_1 = await page.evaluate_handle("""
-                                () => {
-                                    const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
-                                    if (!container) return null;
-                                    const firstItem = container.querySelector('div:nth-child(3)');
-                                    if (firstItem) {
-                                        // 먼저 클래스로 찾기
-                                        const btn = firstItem.querySelector('button.absolute.right-1.top-1');
-                                        if (btn) return btn;
-                                        // 또는 SVG 아이콘으로 찾기
-                                        const allBtns = firstItem.querySelectorAll('button');
-                                        for (let btn of allBtns) {
-                                            const svg = btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]');
-                                            if (svg) return btn;
-                                        }
-                                    }
-                                    return null;
-                                }
-                            """)
-                            if delete_btn_1 and await delete_btn_1.evaluate("el => el !== null"):
-                                await delete_btn_1.click()
-                                print("✓ 첫 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
-                            else:
-                                raise Exception("버튼을 찾을 수 없음")
-                        except Exception as e2:
-                            print(f"JavaScript 기반 찾기도 실패: {e2}")
-                            print("수동으로 첫 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
-                            input()
-                    
-                    # 첫 번째 삭제 후 2초 대기
-                    print("첫 번째 파일 삭제 완료. 2초 대기 중...")
-                    await asyncio.sleep(2.0)
-                    
-                    # 두 번째 삭제 버튼 클릭 (첫 번째 삭제 후 nth-child(3) 위치로 이동)
-                    print("두 번째 삭제 버튼 클릭 중...")
-                    try:
-                        # 첫 번째 파일 삭제 후 두 번째 파일이 nth-child(3) 위치로 이동
-                        delete_selector_2_after = "#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3 > div:nth-child(3) > div > div > div > button"
-                        delete_btn_2 = await page.wait_for_selector(delete_selector_2_after, timeout=5000)
-                        await delete_btn_2.click()
-                        print("✓ 두 번째 삭제 버튼 클릭 완료")
-                        await asyncio.sleep(1.0)
-                    except Exception as e:
-                        print(f"✗ 두 번째 삭제 버튼 찾기 실패: {e}")
-                        # JavaScript로 찾기 시도
-                        try:
-                            delete_btn_2 = await page.evaluate_handle("""
-                                () => {
-                                    const container = document.querySelector('#left-column > div > div > div > div > div > div.flex.h-full.flex-col > div > aside > div:nth-child(2) > div > div.grid.gap-2.grid-cols-3');
-                                    if (!container) return null;
-                                    // 첫 번째 파일 삭제 후 남은 파일 찾기
-                                    // nth-child(3) 위치의 파일 찾기
-                                    const secondItem = container.querySelector('div:nth-child(3)');
-                                    if (secondItem) {
-                                        const btn = secondItem.querySelector('button.absolute.right-1.top-1');
-                                        if (btn) return btn;
-                                        // 또는 모든 버튼 중에서 찾기
-                                        const allBtns = secondItem.querySelectorAll('button');
-                                        for (let btn of allBtns) {
-                                            if (btn.querySelector('svg use[xlink\\:href="#cdn-cross-medium"]')) {
-                                                return btn;
-                                            }
-                                        }
-                                    }
-                                    // fallback: 모든 삭제 버튼 중 첫 번째
-                                    const allDeleteBtns = container.querySelectorAll('button.absolute.right-1.top-1');
-                                    if (allDeleteBtns.length > 0) {
-                                        return allDeleteBtns[0];
-                                    }
-                                    return null;
-                                }
-                            """)
-                            if delete_btn_2 and await delete_btn_2.evaluate("el => el !== null"):
-                                await delete_btn_2.click()
-                                print("✓ 두 번째 삭제 버튼 클릭 완료 (JavaScript 기반)")
-                                await asyncio.sleep(1.0)
-                            else:
-                                raise Exception("버튼을 찾을 수 없음")
-                        except Exception as e2:
-                            print(f"JavaScript 기반 찾기도 실패: {e2}")
-                            print("수동으로 두 번째 삭제 버튼 클릭 후 Enter를 누르세요...")
-                            input()
-                    
-                    print(f"✓ 작업 {total_work}/64 완료!")
-                    
-                    # 다음 작업 전 대기 (마지막 작업이 아닌 경우)
-                    if not (clothes_idx == 8 and model_idx == 8):
-                        print("다음 작업을 위해 2초 대기 중...")
-                        await asyncio.sleep(2.0)
+                    # 내부 루프: model 파일들
+                    for model_file in model_files:
+                        total_work += 1
+                        print(f"\n{'─'*60}")
+                        print(f"작업 {total_work}/{total_tasks}: {model_file.name} + {clothes_file.name}")
+                        print(f"{'─'*60}")
+                        
+                        # 1단계: 파일 업로드 (지정모드는 전체 경로 사용)
+                        print(f"\n=== 1단계: 파일 업로드 ===")
+                        await upload_file(model_file.name, upload_selector_1, model_file.parent)
+                        await upload_file(clothes_file.name, upload_selector_2, clothes_file.parent)
+                        await asyncio.sleep(1.0)  # 파일 업로드 완료 대기
+                        
+                        # 나머지 작업 수행
+                        await process_single_task(page, settings, model_file.stem, clothes_file.stem, total_work, total_tasks, delete_selector_1)
             
             # 모든 작업 완료
             print("\n" + "=" * 60)
@@ -1012,6 +1617,8 @@ async def connect_and_work():
 
 
 if __name__ == "__main__":
-    asyncio.run(connect_and_work())
+    root = tk.Tk()
+    app = FreepikGUI(root)
+    root.mainloop()
 
 
