@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 mode con: cols=70 lines=20
-title Freepik 자동화 ver4.2
+title Freepik 자동화 ver4.2_final
 echo ========================================
 echo Freepik 자동화 프로그램 실행 (ver4.2_final)
 echo ========================================
