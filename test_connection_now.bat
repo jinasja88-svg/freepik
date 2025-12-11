@@ -12,3 +12,6 @@ pause
 python test_connection_detailed.py
 pause
 
+
+
+

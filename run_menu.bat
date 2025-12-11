@@ -96,3 +96,6 @@ echo 프로그램을 종료합니다.
 timeout /t 1 /nobreak >nul
 exit /b 0
 
+
+
+
